@@ -1,0 +1,752 @@
+---
+title: 'SY19 - TP note - Apprentissage ¨¤ partir de trois jeux de donn¨¦es r¨¦elles'
+author: "Jingyi HU"
+date: "Decembre 6, 2017"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+The goal of this TP is to build classifiers as poIrful as possible from three real data sets. I have 3 datasets:
+
++ expression_train.txt, containing the gray levels of an image associated with a facial expression among joy, surprise, sadness, disgust, anger, fear;
++ characters_train.txt, consisting of examples from 26 classes corresponding to the 26 letters of the alphabet;
++ speech_train.txt, where each observation corresponds to pronunciation of a phoneme among "sh", "dcl", "iy", "aa" and "ao".
+I will therefore compare the predictive qualities of several models on these datasets.
+
+NB: If I have enough time, I may try a selection of main components by Forward Stepwise Selection. Because the analysis ideas of the 3 datasets are almost same, so I will analyze more precisely for the first one.
+
+#Load of data
+
+```{r}
+data_expressions<-read.table("expressions_train.txt")
+data_characters<-read.table("characters_train.txt")
+data_parole<-read.table("parole_train.txt")
+```
+
+***
+
+# Using methods
+
+1. The dimension reduction methods:  
++ Principal Component Analysis (PCA)  
++ Factor Discriminant Analysis (FDA)  
++ Forward Stepwise Selection  
++ ...
+
+2. Comparison between the performances of these different models:  
++ K nearest neighbors (KNN)  
++ Linear Discriminant Analysis (LDA) / Quadratic Discriminant Analysis (QDA) / Regularized Discriminant Analysis (QDA) / Naive Bayesian Classifier  
++ Random Forest (RF)  
++ Support Vector Machines (SVM)  
++ Neural Networks (NN)  
+
+3. In addition, I also thought about the possibility to proceed by __cross validation__ in order to be able to learn the models on more data, and I tried the 2 at the same time (without and with CV) I get almost the __same result__. Indeed, the number of observations available is quite low. As a result, I didn't implement the cv to methods because the results obtained seemed good.  
+
+4. I didn't try the __Logistic Regression and Generalized Additive Models (GLM & GAM)__, because this classification problem is not a binary classification. I didn't use logistic regression because the logistic regression method performed by GLM and GAM (which is an extension of GLM) is often less efficient than discriminant analysis (LDA, QDA ...) for classifications with more than two classes. In addition,the latter is often used to explain the effects of the different predictors, which is not the purpose of our study. As a result, these methods will not be used for the "word" and "characters" data sets either.
+
+
+# 1.translation_expression.txt  
+
+# First analysis
+## Pre-treatment
+By displaying the different images, I realize that part of each image is totally useless in the context of our analysis, or even noises: it is all the black pixels at the bottom of each image. I decide to exclude them from any future analysis.
+
+## "average faces"
+To better analyze this database, I tried to average for each expression of images: that is to say, produce six images from the mathematical average of the images of the expression considered. You can find the "average faces" from this average in the archiver named _pdf_.
+
+## Methods to use
+After studying the dataset, I found that it has __a large number of predictors compared to the number of individuals__. The different predictors are globally very __correlated__. I will therefore have to use dimension reduction methods on this dataset, and then test our different models.
+
+
+### The dimension reduction methods
+#### PCA
+I used the PCA using the _prcomp_ function of R. In order to retain only a certain number of principal components, I'm interested in the proportion of variance explained by each of them by plotting their explained proportion of variance, and cumulative variance. You can find a pdf named _pc_cumpropvar.pdf_, _pc_propvarexp.pdf_ and _pc_propvarexp2.pdf_.
+
+In order to test the performance of models on different selections of __Principal Component (PC) __, I composed several dataset: PC5: From the first 5 PCs, PC15: From the first 15 PCs, representing about 65% of explained variance , PC25: From the first 25 PCs, representing about 75% of explained variance, PC50: From the first 50 PCs, representing about 85% of explained variance, PC100: From the first 100 PCs.
+
+First two PCs I also tried to plot our first two main component, hoping to see some interesting pattern. You can find a pdf named _pc_2prcomp.pdf_.
+
+  
+
+#### FDA
+According to the poly, I used the lda method of the language __R__, and multiplied the matrix __X__ of the individuals by the matrix _lda.scaling_ of the selected eigenvectors.
+I applied the FDA two datasets:
+1. Raw FDA: dataset containing all of the individuals in the initial dataset
+2. PC100 FDA: dataset containing the 100 PCs of all individuals in the initial dataset.
+According to the result, I found that I have an overfitting result, the error rate is too low, and in the grading, the classes are totally too separated. The FDA on PC100 makes me realize that I have not used the right approach regarding the FDA. Therefore, I'm thinking of using __Cross-Validation__ because the FDA is a supervised method, so it's obvious that I'm dealing here with training error rates and not test rates. So, I did 6-folds CV on FDA, and I have a rough estimate of the FDA test error rate. This time, overfitting finished. I have error rates that actually correspond to estimates of the test error. I tried the __LDA QDA__ on PC5-PC100 several times and found the conclusion as below.
+
+#### Conclusion:
+
+1. __the use of PCA before FDA application__ and __simply using FDA on the raw dataset__ both have good results.
+2. The choice of the number of PCs retained is important: a large number of PCs may reproduce our previous overfitting problem, while too few of them don't allow a good representativeness of the initial dataset, as they contain a too small proportion of explained variance in this case.  
+
+I will analyze more precisely by directly using the __FDA on the raw dataset__.  In addition, I also thought about the possibility to proceed by cross validation in order to be able to learn the models on more data, and I tried the 2 at the same time (without and with CV) I get almost the __same result__. Indeed, the number of observations available is quite low. As a result, I didn't implement the cv because the results obtained seemed satisfactory.
+
+
+
+## 1.1 FDA
+
+```{r}
+data<-data_expressions
+set.seed(2000)
+#Generate the trainning data and test data
+N<-nrow(data)
+nbTrain=floor(3/4*N)
+nbTst=N-nbTrain
+trainIdx<-sample(1:N, nbTrain)
+train<-data[trainIdx,]
+test<-data[-trainIdx,]
+```
+
+Now we separate the dataset into a test set consisting of one-quarter of the data and a learning set consisting of the remaining data.
+
+```{r}
+#Remove column full of 0
+cleanData.train<-train[,colSums(abs(train[,1:ncol(train)-1])) !=0]
+cleanData.test<-test[,colSums(abs(test[,1:ncol(test)-1])) !=0]
+
+#FDA (with train data)
+library("MASS")
+lda_data<- lda(y~.,data=cleanData.train) 
+U<-lda_data$scaling
+X<-as.matrix(cleanData.train[,1:ncol(cleanData.train)-1])
+Z<-X%*%U
+Z<-as.data.frame(Z)
+y<-cleanData.train$y#delete useless informtion
+train.FDA<-cbind(Z,y)
+
+#Apply FDA on test data
+X<-as.matrix(cleanData.test[,1:ncol(cleanData.test)-1])
+Z<-X%*%U
+Z<-as.data.frame(Z)
+y<-cleanData.test$y
+test.FDA<-cbind(Z,y)
+#Plot
+
+#plot(train.FDA[,1], train.FDA[,2], col = train.FDA$y)
+```
+
+## 1.2 K nearest neighbors (KNN)
+
+```{r}
+library(class)
+train.X <- train.FDA[,1:ncol(train.FDA)-1]
+train.Y <- train.FDA[,ncol(train.FDA)]
+test.X <- test.FDA[,1:ncol(test.FDA)-1]
+test.Y <- test.FDA[,ncol(test.FDA)]
+
+nbvoisin <- seq(1,65) 
+error <- rep(1:65)
+for (i in (1:65)){
+  knn.pred=knn(train.X,test.X,train.Y,k=i)
+  table(knn.pred,test.Y)
+  error[i] <- 1 - mean(knn.pred == test.Y)
+}
+#plot(nbvoisin,error,xlab="Nombre de voisin pris pour apprentissage",ylab="Erreur estim¨¦e")
+which.min(error)
+print(error[6])
+```
+
+According to the result, we obtain the minimum error of __0.1851852__ when k = 6. The K nearest neighbors method generally has poor results in large dimension since the neighbors are actually very far from each other. But I have done a dimension reduction, so it has a not bad results and no overfitting.
+
+## 1.3 Discriminant Analysis:LDA QDA RDA naive Bayesian
+
+### 1.3.1 LDA
+```{r}
+lda_data<- lda(y~.,data=train.FDA)
+pred<-predict(lda_data,newdata=test.FDA)
+table<-table(test.FDA$y,pred$class)
+#table
+error<-1-sum(diag(table))/nbTst
+error
+```
+
+```{r}
+library(caret)
+library(MASS)
+folds <- createFolds(y, k = 10, list = TRUE, returnTrain = FALSE)
+error_rates_lda <- matrix(nrow = 10, ncol = 1)
+for (i in 1:10) {
+  train_df_lda <- as.data.frame(X[-folds[[i]],])
+  test_df_lda <- as.data.frame(X[folds[[i]],])
+  lda_data<- lda(y~.,data=train.FDA)
+  lda.pred <- predict(lda_data, newdata = test.FDA)
+  error_rates_lda[i, ] <- length(which(as.vector(lda.pred$class) != as.vector(test.FDA$y)))/length(as.vector(test.FDA$y))
+} 
+print(mean(as.vector(error_rates_lda))) 
+```
+We get a test error rate with a cross-validation 10-folds is 0.1481481, the same result with LDA without CV. Linear boundaries therefore give a satisfactory result.
+
+### 1.3.2 QDA
+```{r}
+qda_data<- qda(y~.,data=train.FDA)
+pred<-predict(qda_data,newdata=test.FDA)
+table<-table(test.FDA$y,pred$class)
+#table
+error<-1-sum(diag(table))/nbTst
+error
+```
+
+We use a cross-validation 10-folds and we get a very high test error rate: 0.4074074. This classifier is probably too flexible for our data, so it should be excluded.
+
+### 1.3.4 Naive Bayesian Classifier
+
+```{r}
+library(klaR)
+naivB_data<-NaiveBayes(y~.,data=train.FDA)
+pred<-predict(naivB_data,newdata=test.FDA)
+table<-table(test.FDA$y,pred$class)
+# table
+error<-1-sum(diag(table))/nbTst
+error
+```
+I did the same things using the 10-folds CV, then got an error rate of 0.2592593 is therefore worse than that obtained with the LDA (0.14).
+
+### 1.3.5 Regulated discriminant analysis
+```{r}
+rda_data <- rda(y~.,data=train.FDA, crossval = TRUE)
+pred<-predict(rda_data,newdata=test.FDA)
+table<-table(test.FDA$y,pred$class)
+#table
+error<-1-sum(diag(table))/nbTst
+error
+```
+
+The error rate is 0.1851852.
+
+##1.4 Mixture Discriminant Analysis
+
+```{r}
+library(mclust)
+ind_y = 6
+MclustDa_data <- MclustDA(train.FDA[,1:ind_y-1],train.FDA[,ind_y])
+#general covariance structure selected by BIC
+summary(MclustDa_data, newdata = test.FDA[,1:ind_y-1], newclass = test.FDA[,ind_y])
+```
+
+Despite a zero learning error, the test error is extremely high (0.4074074), so as a result we have overfitting.  
+
+##1.5 Arbres
+
+###1.5.1 Arbre de d¨¦cision
+```{r}
+#install.packages("tree")
+library(tree)
+#Full tree
+tree_data = tree(as.factor(y)~., train.FDA)
+plot(tree_data)
+text(tree_data, pretty = 0)
+
+#Cross validation
+size<-cv.tree(tree_data)$size
+DEV<-rep(0, length(size))
+
+for (i in (1:10)) 
+{
+  cv_data = cv.tree(tree_data)
+  DEV<-DEV+cv_data$dev
+}
+
+DEV <- DEV/10
+
+plot(cv_data$size, DEV, type = 'b')
+
+#Pruning
+prune_data = prune.tree(tree_data, best = 7)
+plot(prune_data)
+text(prune_data, pretty = 0)
+
+#Test Error
+y_pred = predict(prune_data, newdata = test.FDA, type = 'class')
+table<-table(y_pred, test.FDA$y)
+#table
+error<-1-sum(diag(table))/nbTst
+error
+```
+
+The error obtained is 0.4444444. It is not a good result. We will try to improve it using Bagging and Random Forest methods.
+
+###1.5.2 Bagging
+```{r}
+library(randomForest)
+#m = p = 5
+bag_data = randomForest(y~., data=train.FDA, mtry=5)
+ypred = predict(bag_data, newdata=test.FDA, type = 'response')
+table<-table(ypred, test.FDA$y)
+error<-1-sum(diag(table))/nbTst
+error
+```
+We have the error rate 0.3333333.
+
+###1.5.3 Random Forest
+```{r}
+#m = sqrt(p)
+rdForest_data = randomForest(y~., data=train.FDA,mtry=3)
+ypred = predict(rdForest_data, newdata=test.FDA, type = 'response')
+table<-table(ypred, test.FDA$y)
+error<-1-sum(diag(table))/nbTst
+error
+```
+
+We have the error rate 0.2962963. The errors obtained by bagging and random forest are lower than that obtained initially by the tree pruned.  
+
+##1.6 Support Vector Machine
+
+```{r}
+library(e1071)
+tune.out = tune(svm, y~., data = train.FDA, kernel = "linear", range = list(cost=c(0.01, 0.1, 1, 10, 100), gamma = c(0.1, 1, 10)))
+summary(tune.out)
+
+svm_data<-svm(y~., data = train.FDA, kernel = "linear", gamma = 0.1, cost = 1)
+ypred = predict(svm_data, newdata=test.FDA)
+table<-table(ypred, test.FDA$y)
+#table
+error<-1-sum(diag(table))/nbTst
+error
+```
+If we use the kernel = linear, we obtain the error 0.1851852, and with the kernel = radial, we have 0.2222222.  
+
+## 1.7 Neural Networks (NN)
+
+```{r}
+library('nnet')
+train.FDA$y = factor(train.FDA$y)
+test.FDA$y = factor(test.FDA$y)
+
+model.nnet = nnet(y ~ ., data=train.FDA, size=2, MaxNWts = 20000)
+model.nnet.predicted = predict(model.nnet, test.FDA, type="class")
+table<-table(model.nnet.predicted, test.FDA$y)
+error<-1-sum(diag(table))/nbTst
+error
+# perfMeasure(model.nnet.predicted, test.FDA$y)
+```
+The error here is too large and we won't take it.  
+The classifier __LDA__ is therefore the best for "expressions".  
+
+
+
+***  
+
+
+#2 Dataset characters_train.txt
+```{r}
+data = data_characters
+dim(data)
+set.seed(1)
+```
+
+Since I have a large number of observations (1000) and a relatively small number of variables (17), I don't consider it necessary to carry out a size reduction. I simply share the data into a test set consisting of one quarter of the data and one learning set consisting of the remaining data.
+
+```{r}
+#Generate train data and test data
+N<-nrow(data)
+nTrain=floor(3/4*N)
+nTest=N-nTrain
+
+train.num<-sample(1:N, nTrain)
+train<-data[train.num,]
+test<-data[-train.num,]
+```
+
+##2.1 K nearest neighbors(KNN)
+```{r}
+library(class)
+index = 1
+train.X <- train[,(index+1):ncol(train)]
+train.Y <- train[,index]
+test.X <- test[,(index+1):ncol(test)]
+test.Y <- test[,index]
+
+nb.voisin <- seq(1,32) 
+error <- rep(1:32)
+for (i in (1:32)){
+  knn.pred=knn(train.X,test.X,train.Y,k=i)
+  table(knn.pred,test.Y)
+  error[i] <- 1 - mean(knn.pred == test.Y)
+}
+which.min(error)
+print(error[1])
+
+```
+I obtain, by cross validation, a minimal error of 0.0760. however, it corresponds to only one neighbor. So there are probably too many dimensions to apply this method because I fall into __overfitting__.Here I take the k = $ \sqrt 1000 $ $ \approx 32 $ .
+
+
+##2.2 Analyze Discriminant
+
+I will first look at the results of classifiers obtained by __linear and quadratic discriminant analysis(LDA and QDA)__ and the __naive Bayesian__ classifier. I will then look for an optimal model by applying the __regularization principle__.
+
+###2.2.1 LDA
+```{r}
+library(MASS)
+lda_data<- lda(Y~.,data=train)
+pred<-predict(lda_data,newdata=test)
+table<-table(test$Y,pred$class)
+##table
+error<-1-sum(diag(table))/nTest
+error
+```
+
+I get an error rate of __0.3056__. A classifier with a linear boundary does not seem appropriate.
+
+###2.2.2 QDA
+```{r}
+qda_data<- qda(Y~.,data=train)
+pred<-predict(qda_data,newdata=test)
+table<-table(test$Y,pred$class)
+##table
+error<-1-sum(diag(table))/nTest
+error
+```
+I obtain an error rate of __0.1224__. It is much less than the result of LDA: the QDA gives good results. This is predictable since I have __a large number of observations__. I can also deduce that our data have a rather Iak noise.
+
+###2.2.3 Naive Bayesian Classifier
+
+```{r}
+library(klaR)
+
+naivB_data<-NaiveBayes(Y~.,data=train)
+pred<-predict(naivB_data,newdata=test)
+table<-table(test$Y,pred$class)
+##table
+error<-1-sum(diag(table))/nTest
+error
+```
+I get an error rate of __0.3636__. The latter is therefore worse than the one obtained with the QDA (0.1304).
+
+###2.2.4 Regulated discriminant analysis
+```{r}
+rda_data <- rda(Y~.,data=train, crossval = TRUE)
+pred<-predict(rda_data,newdata=test)
+table<-table(test$Y,pred$class)
+##table
+error<-1-sum(diag(table))/nTest
+error
+```
+
+The test error rate is __0.122__. It is relatively close to the one obtained with QDA. One can thus think that the regularization favored a matrix of covariance peculiar to each class.
+
+##2.3 Mixture Discriminant Analysis
+
+```{r}
+library(mclust)
+indice_y = 1
+MclustDa_data <- MclustDA(train[,(indice_y+1):ncol(train)],train[,indice_y])
+
+#general covariance structure selected by BIC
+summary(MclustDa_data, newdata = test[,(indice_y+1):ncol(train)], newclass = test[,indice_y])
+```
+
+I get good results: Training error = __0.02666667__ and Test error = __0.0828__. This classifier is therefore better than that obtained by QDA(0.1304). I can therefore deduce that the distribution of data within classes is closer to a __mixture of Gausiennes__ than to one.
+
+##2.5 Tree
+
+###2.5.1 Arbre de d¨¦cision
+```{r}
+library(tree)
+#Full tree
+tree_data = tree(as.factor(Y)~., train)
+plot(tree_data)
+text(tree_data, pretty = 0)
+#Cross validation
+size<-cv.tree(tree_data)$size
+DEV<-rep(0, length(size))
+for (i in (1:10)) 
+{
+  cv_data = cv.tree(tree_data)
+  DEV<-DEV+cv_data$dev
+}
+DEV <- DEV/10
+plot(cv_data$size, DEV, type = 'b')
+#Pruning
+prune_data = prune.tree(tree_data, best = 17)
+plot(prune_data)
+text(prune_data, pretty = 0)
+#Test Error
+y_pred = predict(prune_data, newdata = test, type = 'class')
+table<-table(y_pred, test$Y)
+#table
+error<-1-sum(diag(table))/nTest
+error
+```
+I use the cross-validation and I get the smallest error for an untagged tree: so I have probably over-learning.
+This is confirmed by a high test error: 0.616. This error is therefore not acceptable. 
+
+###2.5.2 Bagging
+```{r}
+library(randomForest)
+#m = p = 5
+bag_data = randomForest(Y~., data = train, mtry = 17) #mtry = 17 means I use the methodes bagging
+ypred = predict(bag_data, newdata = test, type = 'response')
+table<-table(ypred, test$Y)
+error<-1-sum(diag(table))/nTest
+error
+```
+I obtain the __0.0844__ test error. I use mtry = p = 5 by uing bagging. It is therefore much better than that obtained previously.
+
+###2.5.3 Random Forest
+```{r}
+#m = sqrt(p)
+rdForest_data = randomForest(Y~., data = train, mtry = 4)
+ypred = predict(rdForest_data, newdata = test, type = 'response')
+table<-table(ypred, test$Y)
+error<-1-sum(diag(table))/nTest
+error
+```
+
+The test error is __0.0532__, here I take mtry = sqrt (p) = 4 to use the Random Forest.  It is the best result so far(with the minimum test error), and I can see it work better than Bagging.  
+
+## 2.6 Neural Networks(NN)
+```{r}
+library('nnet')
+index = 1
+train.X <- train[,(index+1):ncol(train)]
+train.Y <- train[,index]
+test.X <- test[,(index+1):ncol(test)]
+test.Y <- test[,index]
+model.nnet = nnet(train.Y ~ ., data=train.X, size=2, MaxNWts = 20000)
+model.nnet.predicted = predict(model.nnet, test.X, type="class")
+table<-table(model.nnet.predicted, test.Y)
+error<-1-sum(diag(table))/nTest
+error
+# perfMeasure(model.nnet.predicted, test.FDA$y)
+```
+The error is 0.19541.  
+
+As a result the best classfier is __Random Forest__ for the dataset "characters".
+
+***  
+
+# 3 Donn¨¦es parole_train.txt  
+
+The dataset has 257 variables. In order to know if it is better to proceed to a dimension reduction, I will compare the test errors of an estimated model with a prior FDA processing of the data and without like the first dataset. The error with FDA is significantly smaller than the error without FDA. So I choose to apply the FDA all the same.
+
+ 
+```{r}
+data<-data_parole
+set.seed(1000)
+#Generate train data and test data
+N<-nrow(data)
+nTrain=floor(3/4*N)
+nTst=N-nTrain
+trainIdx<-sample(1:N, nTrain)
+train<-data[trainIdx,]
+test<-data[-trainIdx,]
+
+```
+
+```{r}
+#FDA (with train data)
+library("MASS")
+lda_data<- lda(y~.,data=train) 
+S<-lda_data$scaling
+X<-as.matrix(train[,1:ncol(train)-1])
+Z<-X%*%S
+Z<-as.data.frame(Z)
+y<-train$y
+train_FDA<-cbind(Z,y)
+#Apply FDA on test data
+X<-as.matrix(test[,1:ncol(test)-1])
+Z<-X%*%S
+Z<-as.data.frame(Z)
+y<-test$y
+test_FDA<-cbind(Z,y)
+```
+
+##3.1 K nearest neighbors(KNN)
+
+```{r}
+library(class)
+train.X <- train_FDA[,1:ncol(train_FDA)-1]
+train.Y <- train_FDA[,ncol(train_FDA)]
+test.X <- test_FDA[,1:ncol(test_FDA)-1]
+test.Y <- test_FDA[,ncol(test_FDA)]
+
+nb.voisin <- seq(1,50) 
+error <- rep(1:50)
+for (i in (1:50)){
+  knn.pred=knn(train.X,test.X,train.Y,k=i)
+  table(knn.pred,test.Y)
+  error[i] <- 1 - mean(knn.pred == test.Y)
+}
+#plot(nb.voisin,error,xlab="Number of neighbors taken for learning",ylab="Error")
+which.min(error)
+print(error[17])
+```
+
+Here I take the k = $ \sqrt 2250 $ $ \approx 50 $, and I obtain the minimum error of _0.07460036_ when k = 17. 
+
+##3.2 Discriminant Analysis  
+
+
+###3.2.1 LDA
+```{r}
+lda_data<- lda(y~.,data=train_FDA)
+pred<-predict(lda_data,newdata=test_FDA)
+table<-table(test_FDA$y,pred$class)
+#table
+error<-1-sum(diag(table))/nTst
+error
+```
+
+I get an error rate of __0.07282416__. Linear boundaries therefore gives a good result.
+
+###3.2.2 QDA
+```{r}
+qda_data<- qda(y~.,data=train_FDA)
+pred<-predict(qda_data,newdata=test_FDA)
+table<-table(test_FDA$y,pred$class)
+#table
+error<-1-sum(diag(table))/nTst
+error
+```
+I get an error rate of __0.07104796__.
+
+###3.2.3 Naive Bayesian Classifier
+
+```{r}
+library(klaR)
+
+NB_data<-NaiveBayes(y~.,data=train_FDA)
+pred<-predict(NB_data,newdata=test_FDA)
+table<-table(test_FDA$y,pred$class)
+#table
+error<-1-sum(diag(table))/nTst
+error
+```
+I get an error rate of __0.06749556__.
+
+###3.2.4 Regulated discriminant analysis
+```{r}
+rda_data <- rda(y~.,data=train_FDA, crossval = TRUE)
+pred<-predict(rda_data,newdata=test_FDA)
+table<-table(test_FDA$y,pred$class)
+# table
+error<-1-sum(diag(table))/nTst
+error
+```
+
+The error rate is __0.06749556__, it's the same with that of Naive Bayesian Classifier, but I do not have the same table.  
+The different discriminant analysis methods thus give similar test errors. These approachs seem to work Ill on this data.
+
+
+##3.3 Mixture Discriminant Analysis
+
+```{r}
+library(mclust)
+indice_y = 5
+MclustDa_data <- MclustDA(train_FDA[,1:indice_y-1],train_FDA[,indice_y])
+#general covariance structure selected by BIC
+summary(MclustDa_data, newdata = test_FDA[,1:indice_y-1], newclass = test_FDA[,indice_y])
+```
+
+The training error = 0.04682869, test error = 0.07815275. This model also gives good result.
+
+##3.4 Arbres
+
+###3.4.1 Arbre de d¨¦cision
+```{r}
+library(tree)
+#Full tree
+tree_data = tree(as.factor(y)~., train_FDA)
+plot(tree_data)
+text(tree_data, pretty = 0)
+#Cross validation
+size<-cv.tree(tree_data)$size
+DEV<-rep(0, length(size))
+for (i in (1:10)) 
+{
+  cv_data = cv.tree(tree_data)
+  DEV<-DEV+cv_data$dev
+}
+DEV <- DEV/10
+plot(cv_data$size, DEV, type = 'b')
+#Pruning
+prune_data = prune.tree(tree_data, best = 6)
+plot(prune_data)
+text(prune_data, pretty = 0)
+#Test Error
+y_pred = predict(prune_data, newdata = test_FDA, type = 'class')
+table<-table(y_pred, test_FDA$y)
+#table
+error<-1-sum(diag(table))/nTst
+error
+```
+
+The resulting test error is __0.07992895__. It is rather Iak and is obtained without pruning for 6 leaves. This is probably related to the fact that a dimension reduction has been performed, which limits the complexity of the initial tree.
+
+```{r}
+tune.rf = tuneRF(data[,-257], data[,257], stepFactor = 0.5)
+```
+
+
+###3.4.2 Bagging
+```{r}
+library(randomForest)
+#m = 4 = 257
+bag_data = randomForest(y~., data=train_FDA, mtry = 4)
+ypred = predict(bag_data, newdata=test_FDA, type = 'response')
+table<-table(ypred, test_FDA$y)
+error<-1-sum(diag(table))/nTst
+error
+```
+The error is  __0.08703375__.
+
+###3.4.3 Random Forest   ######TODO verifie le mtry
+```{r}
+#m = sqrt(p) = p/2 
+rdForest_data = randomForest(y~., data=train_FDA,mtry = 2)
+ypred = predict(rdForest_data, newdata=test_FDA, type = 'response')
+table<-table(ypred, test_FDA$y)
+error<-1-sum(diag(table))/nTst
+error
+```
+I obtain the error __0.08880995__. Here I take mtry = $ \sqrt p $ = 2.
+
+
+##3.5 Support Vector Machine
+
+```{r message=FALSE, warning=FALSE,eval=FALSE}
+library(e1071)
+#Kernel = radial
+tune.out = tune(svm, y~., data = train_FDA, kernel = "radial", range = list(cost=c(0.01, 0.1, 1, 10, 100), gamma = c(0.1, 1, 10)))
+summary(tune.out)
+
+svm_data<-svm(y~., data = train_FDA, kernel = "radial", gamma = 0.1, cost = 1)
+ypred = predict(svm_data, newdata=test_FDA)
+table<-table(ypred, test_FDA$y)
+table
+error<-1-sum(diag(table))/nTst
+error
+```
+
+I have the error __0.06927176__ with a cost 0.1 and a gamma 0.1.
+
+##3.6 Neural Networks(NN)
+```{r}
+library('nnet')
+train_FDA$y = factor(train_FDA$y)
+test_FDA$y = factor(test_FDA$y)
+
+model.nnet = nnet(y ~ ., data=train_FDA, size=2, MaxNWts = 20000)
+model.nnet.predicted = predict(model.nnet, test_FDA, type="class")
+table<-table(model.nnet.predicted, test_FDA$y)
+error<-1-sum(diag(table))/nTst
+error
+# perfMeasure(model.nnet.predicted, test.FDA$y)
+```
+Here we have the error 0.1740675.  
+
+The naive Bayesian classifier is therefore the best for "word". Besides, I find that all methods have performed well on this dataset.  
+
+#Conclusion  
+
++ dataset expression : LDA  
++ dataset character  : Random Forest  
++ dataset parole     : Naive Bayesian
+
+
+
+
+
+
+
