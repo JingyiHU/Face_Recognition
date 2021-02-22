@@ -1,5 +1,6 @@
 # FaceRecognition-tensorflow
 
+#### For learning purpose.
 
 Use site :http://vis-www.cs.umass.edu/lfw/
 
